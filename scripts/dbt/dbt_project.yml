@@ -1,0 +1,29 @@
+# scripts/dbt/dbt_project.yml
+name: 'logistics_demo'
+version: '1.0'
+profile: 'logistics_demo'
+config-version: 2
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+seeds:
+  logistics_demo:
+    +schema: bronze
+
+models:
+  logistics_demo:
+    bronze:
+      +schema: bronze
+      +materialized: view
+    silver:
+      +schema: silver
+      +materialized: table
+    gold:
+      +schema: gold
+      +materialized: table
+    monitoring:
+      +schema: monitoring           # <- stable place for observability
+      +materialized: table

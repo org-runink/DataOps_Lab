@@ -1,0 +1,25 @@
+[sqlfluff]
+# Use the Jinja templater with Snowflake dialect for all SQL files.  This allows
+# SQLFluff to interpret DBT macros properly and avoid undefined template errors.
+templater = jinja
+dialect = snowflake
+
+# Exclude certain layout rules to reduce noise on long lines and aliasing.  You
+# can enable these later if stricter formatting is desired.
+exclude_rules = LT05, LT02, LT01, AL01, AM03
+
+# Increase the maximum allowed line length.  The default of 80 is very strict
+# and causes many line length errors in generated models.
+max_line_length = 120
+
+[sqlfluff:templater:jinja]
+# Apply DBT built-in macros so constructs like generate_schema_name and
+# generate_alias_name are recognised during linting.
+apply_dbt_builtins = true
+
+# Define dummy implementations for custom dbt macros used in this project.  These
+# implementations simply return either the custom name passed in or the node name.
+# This prevents SQLFluff from raising undefined macro errors when linting.
+[sqlfluff:templater:jinja:macros]
+generate_schema_name = {% macro generate_schema_name(custom_schema_name, node) %}{{ custom_schema_name or node.name }}{% endmacro %}
+generate_alias_name = {% macro generate_alias_name(custom_alias_name, node) %}{{ custom_alias_name or node.name }}{% endmacro %}

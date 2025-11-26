@@ -1,0 +1,35 @@
+name: 🚀 Feature Request
+description: Request creation of a new DBT/Snowflake schema or object for a new feature
+title: "[Feature]: <describe-feature-name>"
+
+labels: ["feature", "dbt", "snowflake"]
+
+body:
+  - type: input
+    id: schema_name
+    attributes:
+      label: "Schema/Object Name"
+      description: "Provide the desired name for the schema/object."
+      placeholder: "inventory_forecast"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: "Feature Description"
+      description: "Briefly describe the feature and required DBT/Snowflake objects."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: object_type
+    attributes:
+      label: "Object Type"
+      options:
+        - Schema
+        - Table
+        - View
+        - Other
+    validations:
+      required: true

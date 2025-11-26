@@ -1,0 +1,10 @@
+extends: default
+rules:
+  # Increase maximum line length to 120 characters
+  line-length:
+    max: 120
+    level: warning
+  # Disable the requirement for documents to start with '---'
+  document-start: disable
+  # Disable truthy rule to allow yes/no values
+  truthy: disable

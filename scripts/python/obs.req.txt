@@ -1,0 +1,10 @@
+dbt-snowflake==1.7.*              # Snowflake adapter
+pandas==2.2.*                     # dataframes for metrics
+markdown==3.6.*                   # render HTML dashboards
+jinja2==3.1.*                     # templating for reports
+python-dateutil==2.9.*            # timestamps & scheduling
+pyyaml==6.0.*                     # YAML-driven configs
+tabulate==0.9.*                   # tabular summary printing
+faker==25.*                       # synthetic data for seeds/demos
+snowflake-connector-python>=3.10.0
+cryptography

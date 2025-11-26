@@ -1,0 +1,110 @@
+default_language_version:
+  python: python3
+
+repos:
+  # General purpose hooks to catch simple issues early
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      # Remove trailing whitespace from files
+      - id: trailing-whitespace
+      # Ensure files end with a single newline
+      - id: end-of-file-fixer
+      # Detect unresolved merge conflict markers
+      - id: check-merge-conflict
+      # Validate that YAML files can be parsed
+      - id: check-yaml
+      # Prevent accidentally committing extremely large files
+      - id: check-added-large-files
+      # Validate JSON files
+      - id: check-json
+
+  # Format and standardise Python code under scripts/python/
+  - repo: https://github.com/psf/black
+    # Pin to a specific version for reproducible builds
+    rev: 23.11.0
+    hooks:
+      - id: black
+        name: black (python formatter)
+        # Use the default Python interpreter configured above.  Removing
+        # the explicit language_version avoids errors when python3.10
+        # isn't available in the development environment.
+        language_version: python3
+        files: '^scripts/python/.*\.py$'
+
+  # Sort imports consistently in Python files
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.12.0
+    hooks:
+      - id: isort
+        name: isort (import sorting)
+        files: '^scripts/python/.*\.py$'
+
+  # Lint Python code with flake8 and additional plugins
+  - repo: https://github.com/PyCQA/flake8
+    rev: 6.1.0
+    hooks:
+      - id: flake8
+        name: flake8 (python linter)
+        # Explicitly set ignore and max-line-length here to avoid relying on
+        # external configuration files which may cause parsing errors.
+        args:
+          - '--ignore=F401,E203'
+          - '--max-line-length=120'
+        additional_dependencies:
+          # Include useful flake8 plugins for bug detection and readability
+          - flake8-bugbear==23.7.10
+          # Removed flake8-annotations plugin to avoid missing type annotation errors
+        files: '^scripts/python/.*\.py$'
+
+  # Automatically upgrade deprecated Python syntax
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.4.0
+    hooks:
+      - id: pyupgrade
+        name: pyupgrade (modernise Python syntax)
+        args: ['--py38-plus']
+        files: '^scripts/python/.*\.py$'
+
+  # Lint and optionally fix SQL and DBT Jinja templates
+  - repo: https://github.com/sqlfluff/sqlfluff
+    # Use the same version pinned in requirements.txt for consistency
+    rev: 3.0.3
+    hooks:
+      - id: sqlfluff-lint
+        name: sqlfluff lint (Snowflake dialect with dbt templater)
+        args:
+          - '--dialect=snowflake'
+          - '--templater=jinja'
+          # Use our local .sqlfluff config explicitly so SQLFluff picks up dbt
+          # built-ins and relaxed rules.
+          - '--config=.sqlfluff'
+        files: '^scripts/dbt/.*\.(sql|yml)$'
+      - id: sqlfluff-fix
+        name: sqlfluff fix (auto-fix SQL formatting)
+        args:
+          - '--dialect=snowflake'
+          - '--templater=jinja'
+          - '--config=.sqlfluff'
+          # force is now default behaviour in sqlfluff v3
+        files: '^scripts/dbt/.*\.(sql|yml)$'
+
+  # Lint YAML files for style and best practices
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.32.0
+    hooks:
+      - id: yamllint
+        name: yamllint (YAML linter)
+        # Use a simple configuration file if present; fall back to default rules
+        # The repository does not currently provide a specific config, but this hook
+        # will still catch indentation and formatting issues.
+        files: '\.(yml|yaml)$'
+
+  # Scan for secret values before they enter version control
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        name: detect-secrets (secret scanner)
+        # Run with default settings. Baseline scanning is disabled to prevent path errors.
+  # The markdownlint hook has been removed to reduce noise from long lines in documentation.

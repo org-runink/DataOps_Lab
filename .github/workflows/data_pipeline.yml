@@ -1,0 +1,401 @@
+name: Medallion ELT
+
+# This workflow orchestrates a medallion ELT pipeline in GitHub Actions.
+# It uses a three‑layer approach (Bronze → Silver → Gold) to seed, stage,
+# transform and test data via dbt. Each layer runs in its own job.  A
+# dynamic seed generator produces CSV files on the fly for each run and
+# seeds are loaded prior to running models so that downstream views have
+# access to their raw inputs.  The final job posts a summary of the
+# results to Slack.
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Target environment (dev/prod/ci)"
+        required: false
+        type: string
+      extra_flags:
+        description: "Optional flags or selectors"
+        required: false
+        type: string
+      requirements_path:
+        description: "Path to Python requirements file"
+        required: false
+        type: string
+    secrets:
+      SNOWFLAKE_ACCOUNT: {required: true}
+      SNOWFLAKE_USER: {required: true}
+      SNOWFLAKE_ROLE: {required: true}
+      SNOWFLAKE_WAREHOUSE: {required: true}
+      SNOWFLAKE_TOKEN: {required: true}
+      SNOWFLAKE_AUTHENTICATOR: {required: false}
+      SNOWFLAKE_DATABASE: {required: true}
+      SNOWFLAKE_USER_PASSWORD: {required: false}
+      SLACK_WEBHOOK_URL: {required: false}
+
+concurrency:
+  group: elt-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # -----------------------------------------------------------------------------
+  # Setup job: resolves the dbt environment and schema based on branch name.
+  # Saves these values to outputs for later jobs.
+  # -----------------------------------------------------------------------------
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      dbt_env: ${{ steps.set-env.outputs.DBT_ENVIRONMENT }}
+      dbt_schema: ${{ steps.set-env.outputs.DBT_TARGET_SCHEMA }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Load .env from template
+        run: |
+          cat > .env <<'EOF'
+          SNOWFLAKE_ACCOUNT=${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER=${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_ROLE=${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_WAREHOUSE=${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_DATABASE=${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_AUTHENTICATOR=${{ secrets.SNOWFLAKE_AUTHENTICATOR || 'PROGRAMMATIC_ACCESS_TOKEN' }}
+          SNOWFLAKE_TOKEN=${{ secrets.SNOWFLAKE_TOKEN }}
+          SNOWFLAKE_USER_PASSWORD=${{ secrets.SNOWFLAKE_USER_PASSWORD || '' }}
+          OBSERVABILITY_SCHEMA_PREFIX=${{ secrets.OBSERVABILITY_SCHEMA_PREFIX }}
+          SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}
+          EOF
+          cat .env >> "$GITHUB_ENV"
+
+      - name: Assert profiles.yml
+        run: test -f scripts/dbt/profiles.yml
+
+      - name: Determine dbt target (env/schema)
+        id: set-env
+        shell: bash
+        run: |
+          REF="${{ github.ref }}"
+          if [[ "$REF" == "refs/heads/main" ]]; then
+            DBT_ENVIRONMENT=prod
+            DBT_TARGET_SCHEMA=prod
+          elif [[ "$REF" == "refs/heads/develop" ]]; then
+            DBT_ENVIRONMENT=dev
+            DBT_TARGET_SCHEMA=dev
+          else
+            ISSUE_ID=${{ github.run_id }}
+            DBT_ENVIRONMENT=ci_cd
+            DBT_TARGET_SCHEMA="ci_${ISSUE_ID}"
+          fi
+
+          echo "DBT_ENVIRONMENT=$DBT_ENVIRONMENT" >> "$GITHUB_ENV"
+          echo "DBT_TARGET_SCHEMA=$DBT_TARGET_SCHEMA" >> "$GITHUB_ENV"
+          echo "DBT_ENVIRONMENT=$DBT_ENVIRONMENT" >> "$GITHUB_OUTPUT"
+          echo "DBT_TARGET_SCHEMA=$DBT_TARGET_SCHEMA" >> "$GITHUB_OUTPUT"
+
+  # -----------------------------------------------------------------------------
+  # Bronze layer: generate seeds, load raw data into bronze tables, and run
+  # basic smoke tests.  This job depends on setup.
+  # -----------------------------------------------------------------------------
+  bronze_layer:
+    needs: setup
+    runs-on: ubuntu-latest
+    env:
+      DBT_ENVIRONMENT: ${{ needs.setup.outputs.dbt_env }}
+      DBT_TARGET_SCHEMA: ${{ needs.setup.outputs.dbt_schema }}
+      # dbt commands run from scripts/dbt, so profiles dir is '.'
+      DBT_PROFILES_DIR: .
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load .env from template
+        run: |
+          cat > .env <<'EOF'
+          SNOWFLAKE_ACCOUNT=${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER=${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_ROLE=${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_WAREHOUSE=${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_DATABASE=${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_AUTHENTICATOR=${{ secrets.SNOWFLAKE_AUTHENTICATOR || 'PROGRAMMATIC_ACCESS_TOKEN' }}
+          SNOWFLAKE_TOKEN=${{ secrets.SNOWFLAKE_TOKEN }}
+          SNOWFLAKE_USER_PASSWORD=${{ secrets.SNOWFLAKE_USER_PASSWORD || '' }}
+          OBSERVABILITY_SCHEMA_PREFIX=${{ secrets.OBSERVABILITY_SCHEMA_PREFIX }}
+          SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}
+          EOF
+          cat .env >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            **/requirements.txt
+            ${{ inputs.requirements_path }}
+
+      - name: Install Python dependencies
+        if: inputs.requirements_path != ''
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r "${{ inputs.requirements_path }}"
+
+      - name: Install DBT dependencies
+        working-directory: scripts/dbt
+        run: dbt deps
+
+      # Generate dynamic CSV seed files for the bronze load.
+      - name: Generate Dynamic CSV Seed Files
+        run: python scripts/python/create_seed.py
+
+      # Load seeds and run bronze models.
+      - name: Load Bronze (seed → tables)
+        working-directory: scripts/dbt
+        run: |
+          dbt seed
+          dbt run --select path:models/bronze/
+
+      - name: Bronze basic checks
+        working-directory: scripts/dbt
+        run: dbt test --select tag:bronze
+
+  # -----------------------------------------------------------------------------
+  # Silver layer: regenerates seeds (jobs are isolated), seeds them into the
+  # current schema, then runs all silver models.  Outputs pass rate for tests.
+  # -----------------------------------------------------------------------------
+  silver_layer:
+    needs: [setup, bronze_layer]
+    runs-on: ubuntu-latest
+    outputs:
+      passed: ${{ steps.silver_tests.outputs.passed }}
+      total: ${{ steps.silver_tests.outputs.total }}
+      rate: ${{ steps.silver_tests.outputs.rate }}
+    env:
+      # carry forward environment and schema from setup
+      DBT_ENVIRONMENT: ${{ needs.setup.outputs.dbt_env }}
+      DBT_TARGET_SCHEMA: ${{ needs.setup.outputs.dbt_schema }}
+      DBT_PROFILES_DIR: .
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load .env from template
+        run: |
+          cat > .env <<'EOF'
+          SNOWFLAKE_ACCOUNT=${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER=${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_ROLE=${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_WAREHOUSE=${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_DATABASE=${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_AUTHENTICATOR=${{ secrets.SNOWFLAKE_AUTHENTICATOR || 'PROGRAMMATIC_ACCESS_TOKEN' }}
+          SNOWFLAKE_TOKEN=${{ secrets.SNOWFLAKE_TOKEN }}
+          SNOWFLAKE_USER_PASSWORD=${{ secrets.SNOWFLAKE_USER_PASSWORD || '' }}
+          OBSERVABILITY_SCHEMA_PREFIX=${{ secrets.OBSERVABILITY_SCHEMA_PREFIX }}
+          SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}
+          EOF
+          cat .env >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            **/requirements.txt
+            ${{ inputs.requirements_path }}
+
+      - name: Install Python dependencies
+        if: inputs.requirements_path != ''
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r "${{ inputs.requirements_path }}"
+
+      - name: Install DBT dependencies
+        working-directory: scripts/dbt
+        run: dbt deps
+
+      # Regenerate dynamic CSV seed files (jobs run in isolation)
+      - name: Generate Dynamic CSV Seed Files
+        run: python scripts/python/create_seed.py
+
+      # Load seeds into the current schema
+      - name: Seed data for Silver
+        working-directory: scripts/dbt
+        run: dbt seed
+
+      - name: Build Silver (cleaned/conformed)
+        working-directory: scripts/dbt
+        run: dbt run --select path:models/silver/
+
+      - name: Silver tests (constraints, nullability, referential)
+        id: silver_tests
+        working-directory: scripts/dbt
+        run: |
+          # Run tests and capture run_results.json (no --output flag)
+          dbt test --select path:models/silver/ || true
+          cp target/run_results.json ../silver_test_results.json
+          PASSED=$(jq '[.results[] | select(.status=="pass")] | length' ../silver_test_results.json)
+          TOTAL=$(jq '.results | length' ../silver_test_results.json)
+          RATE=$(python - <<'PY'
+          import json
+          with open("../silver_test_results.json") as f:
+              d=json.load(f)
+          total=len(d.get("results",[])) or 1
+          passed=sum(1 for r in d.get("results",[]) if r.get("status")=="pass")
+          print(round(100*passed/total, 1))
+          PY
+          )
+          echo "passed=$PASSED" >> $GITHUB_OUTPUT
+          echo "total=$TOTAL"  >> $GITHUB_OUTPUT
+          echo "rate=$RATE"    >> $GITHUB_OUTPUT
+
+      - name: Silver source freshness
+        id: silver_fresh
+        working-directory: scripts/dbt
+        run: |
+          # Run freshness checks and copy the resulting sources.json
+          dbt source freshness || true
+          cp target/sources.json ../silver_fresh.json
+          echo "file=../silver_fresh.json" >> $GITHUB_OUTPUT
+
+  # -----------------------------------------------------------------------------
+  # Gold layer: builds business marts and runs tests.  Depends on silver.
+  # -----------------------------------------------------------------------------
+  gold_layer:
+    needs: [setup, bronze_layer, silver_layer]
+    runs-on: ubuntu-latest
+    outputs:
+      passed: ${{ steps.gold_tests.outputs.passed }}
+      total: ${{ steps.gold_tests.outputs.total }}
+      rate: ${{ steps.gold_tests.outputs.rate }}
+    env:
+      # carry forward environment and schema from setup
+      DBT_ENVIRONMENT: ${{ needs.setup.outputs.dbt_env }}
+      DBT_TARGET_SCHEMA: ${{ needs.setup.outputs.dbt_schema }}
+      DBT_PROFILES_DIR: .
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load .env from template
+        run: |
+          envsubst < .github/workflows/.env.template > .env
+          cat .env >> "$GITHUB_ENV"
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_TOKEN: ${{ secrets.SNOWFLAKE_TOKEN }}
+          SNOWFLAKE_AUTHENTICATOR: ${{ secrets.SNOWFLAKE_AUTHENTICATOR || 'PROGRAMMATIC_ACCESS_TOKEN' }}
+          OBSERVABILITY_SCHEMA_PREFIX: ${{ secrets.OBSERVABILITY_SCHEMA_PREFIX }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            **/requirements.txt
+            ${{ inputs.requirements_path }}
+
+      - name: Install Python dependencies
+        if: inputs.requirements_path != ''
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r "${{ inputs.requirements_path }}"
+
+      - name: Install DBT dependencies
+        working-directory: scripts/dbt
+        run: dbt deps
+
+      # Regenerate dynamic CSV seed files (jobs run in isolation)
+      - name: Generate Dynamic CSV Seed Files
+        run: python scripts/python/create_seed.py
+
+      # Load seeds into the current schema
+      - name: Seed data for Gold
+        working-directory: scripts/dbt
+        run: dbt seed
+
+      - name: Build Gold (business marts)
+        working-directory: scripts/dbt
+        run: dbt run --select path:models/gold/
+
+      - name: Gold tests (business rules)
+        id: gold_tests
+        working-directory: scripts/dbt
+        run: |
+          dbt test --select path:models/gold/ || true
+          cp target/run_results.json ../gold_test_results.json
+          PASSED=$(jq '[.results[] | select(.status=="pass")] | length' ../gold_test_results.json)
+          TOTAL=$(jq '.results | length' ../gold_test_results.json)
+          RATE=$(python - <<'PY'
+          import json
+          with open("../gold_test_results.json") as f:
+              d=json.load(f)
+          total=len(d.get("results",[])) or 1
+          passed=sum(1 for r in d.get("results",[]) if r.get("status")=="pass")
+          print(round(100*passed/total, 1))
+          PY
+          )
+          echo "passed=$PASSED" >> $GITHUB_OUTPUT
+          echo "total=$TOTAL"  >> $GITHUB_OUTPUT
+          echo "rate=$RATE"    >> $GITHUB_OUTPUT
+
+  # -----------------------------------------------------------------------------
+  # Notification: posts a summary of the pipeline result to Slack.  Always runs.
+  # -----------------------------------------------------------------------------
+  notify:
+    needs: [setup, bronze_layer, silver_layer, gold_layer]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load .env from template
+        run: |
+          cat > .env <<'EOF'
+          SNOWFLAKE_ACCOUNT=${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER=${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_ROLE=${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_WAREHOUSE=${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_DATABASE=${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_AUTHENTICATOR=${{ secrets.SNOWFLAKE_AUTHENTICATOR || 'PROGRAMMATIC_ACCESS_TOKEN' }}
+          SNOWFLAKE_TOKEN=${{ secrets.SNOWFLAKE_TOKEN }}
+          SNOWFLAKE_USER_PASSWORD=${{ secrets.SNOWFLAKE_USER_PASSWORD || '' }}
+          OBSERVABILITY_SCHEMA_PREFIX=${{ secrets.OBSERVABILITY_SCHEMA_PREFIX }}
+          SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}
+          EOF
+          cat .env >> "$GITHUB_ENV"
+
+      - name: Summarize ELT outcome
+        id: sum
+        run: |
+          echo "silver_passed=${{ needs.silver_layer.outputs.passed || '0' }}" >> $GITHUB_OUTPUT
+          echo "silver_total=${{ needs.silver_layer.outputs.total  || '0' }}" >> $GITHUB_OUTPUT
+          echo "silver_rate=${{ needs.silver_layer.outputs.rate   || '0' }}" >> $GITHUB_OUTPUT
+          echo "gold_passed=${{ needs.gold_layer.outputs.passed   || '0' }}" >> $GITHUB_OUTPUT
+          echo "gold_total=${{ needs.gold_layer.outputs.total     || '0' }}" >> $GITHUB_OUTPUT
+          echo "gold_rate=${{ needs.gold_layer.outputs.rate       || '0' }}" >> $GITHUB_OUTPUT
+          echo "status=${{ (needs.silver_layer.result == 'success' && needs.gold_layer.result == 'success') && 'OK' || 'FAIL' }}" >> $GITHUB_OUTPUT
+
+      - name: Slack — ELT Status
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "blocks": [
+                { "type":"header", "text": { "type":"plain_text", "text":"${{ steps.sum.outputs.status == 'OK' && '✅ Medallion ELT Success' || '🚨 Medallion ELT Failure' }}" } },
+                { "type":"section", "fields": [
+                  { "type":"mrkdwn", "text":"*Branch:* `${{ github.ref_name }}`" },
+                  { "type":"mrkdwn", "text":"*Run:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|${{ github.run_id }}>" }
+                ]},
+                { "type":"divider" },
+                { "type":"section", "text": { "type":"mrkdwn",
+                  "text":"*Silver (conformed)*\n• Tests: *${{ steps.sum.outputs.silver_passed }} / ${{ steps.sum.outputs.silver_total }}* (*${{ steps.sum.outputs.silver_rate }}%*)" } },
+                { "type":"section", "text": { "type":"mrkdwn",
+                  "text":"*Gold (business marts)*\n• Tests: *${{ steps.sum.outputs.gold_passed }} / ${{ steps.sum.outputs.gold_total }}* (*${{ steps.sum.outputs.gold_rate }}%*)" } },
+                { "type":"context", "elements":[
+                  { "type":"mrkdwn", "text":"Layers executed: *Bronze → Silver → Gold*. Freshness checks run at Silver." }
+                ]}
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ env.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

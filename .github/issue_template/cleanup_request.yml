@@ -1,0 +1,35 @@
+name: 🧹 Cleanup Request
+description: Request deletion of DBT/Snowflake schema or object
+title: "[Cleanup]: <object-or-schema-name>"
+
+labels: ["cleanup", "dbt", "snowflake"]
+
+body:
+  - type: input
+    id: object_name
+    attributes:
+      label: "Schema/Object Name to Delete"
+      description: "Specify the exact schema or object to be deleted."
+      placeholder: "feature_old_inventory"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: object_type
+    attributes:
+      label: "Object Type"
+      options:
+        - Schema
+        - Table
+        - View
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: reason
+    attributes:
+      label: "Reason for Deletion"
+      description: "Clearly describe why this schema/object is obsolete."
+    validations:
+      required: true

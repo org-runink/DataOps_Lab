@@ -1,0 +1,401 @@
+version: 2
+
+models:
+  # -------------------------------------------------------------------------
+  # Bronze staging models
+  # -------------------------------------------------------------------------
+  - name: stg_inventory_movements
+    description: "Staging model for Bronze inventory movements."
+    tags: ["bronze", "data-quality"]
+    columns:
+      - name: MOVEMENT_ID
+        description: "Unique identifier for each inventory movement."
+        tests:
+          - unique:
+              config:
+                tags: ["bronze", "data-quality"]
+          - not_null:
+              config:
+                tags: ["bronze", "data-quality"]
+      - name: PRODUCT_ID
+        description: "Identifier of the product."
+        tests:
+          - not_null:
+              config:
+                tags: ["bronze", "data-quality"]
+          - relationships:
+              to: ref('stg_products')
+              field: PRODUCT_ID
+              config:
+                tags: ["bronze", "data-quality"]
+      - name: WAREHOUSE_ID
+        description: "Identifier of the warehouse."
+        tests:
+          - not_null:
+              config:
+                tags: ["bronze", "data-quality"]
+          - relationships:
+              to: ref('stg_warehouses')
+              field: WAREHOUSE_ID
+              config:
+                tags: ["bronze", "data-quality"]
+      - name: MOVEMENT_DATE
+        description: "Date of the inventory movement."
+        tests:
+          - not_null:
+              config:
+                tags: ["bronze", "data-quality"]
+          - dbt_expectations.expect_column_values_to_be_of_type:
+              column_type: date
+              config:
+                tags: ["bronze", "data-quality"]
+      - name: QUANTITY
+        description: "Number of units moved."
+        tests:
+          - not_null:
+              config:
+                tags: ["bronze", "data-quality"]
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: -1000
+              max_value: 1000
+              config:
+                tags: ["bronze", "data-quality"]
+      - name: MOVEMENT_TYPE
+        description: "Type of inventory movement."
+        tests:
+          - accepted_values:
+              values: ['replenishment', 'outbound', 'adjustment']
+              config:
+                tags: ["bronze", "data-quality"]
+
+  - name: stg_customer_orders
+    description: "Staging model for Bronze customer orders."
+    tags: ["bronze", "data-quality"]
+    columns:
+      - name: ORDER_ID
+        description: "Unique identifier for customer order."
+        tests:
+          - unique:
+              config:
+                tags: ["bronze", "data-quality"]
+          - not_null:
+              config:
+                tags: ["bronze", "data-quality"]
+      - name: PRODUCT_ID
+        description: "Identifier of the product ordered."
+        tests:
+          - not_null:
+              config:
+                tags: ["bronze", "data-quality"]
+          - relationships:
+              to: ref('stg_products')
+              field: PRODUCT_ID
+              config:
+                tags: ["bronze", "data-quality"]
+      - name: WAREHOUSE_ID
+        description: "Warehouse fulfilling the order."
+        tests:
+          - not_null:
+              config:
+                tags: ["bronze", "data-quality"]
+          - relationships:
+              to: ref('stg_warehouses')
+              field: WAREHOUSE_ID
+              config:
+                tags: ["bronze", "data-quality"]
+      - name: ORDER_DATE
+        description: "Date of the customer order."
+        tests:
+          - not_null:
+              config:
+                tags: ["bronze", "data-quality"]
+          - dbt_expectations.expect_column_values_to_be_of_type:
+              column_type: date
+              config:
+                tags: ["bronze", "data-quality"]
+      - name: QUANTITY
+        description: "Number of units ordered."
+        tests:
+          - not_null:
+              config:
+                tags: ["bronze", "data-quality"]
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 1
+              max_value: 100
+              config:
+                tags: ["bronze", "data-quality"]
+      - name: SALES_CHANNEL
+        description: "Sales channel of the order."
+        tests:
+          - accepted_values:
+              values: ['online', 'retail', 'wholesale']
+              config:
+                tags: ["bronze", "data-quality"]
+
+  - name: stg_products
+    description: "Staging model for Bronze products master data."
+    tags: ["bronze", "data-quality"]
+    columns:
+      - name: PRODUCT_ID
+        description: "Unique identifier for each product."
+        tests:
+          - unique:
+              config:
+                tags: ["bronze", "data-quality"]
+          - not_null:
+              config:
+                tags: ["bronze", "data-quality"]
+      - name: PRODUCT_NAME
+        description: "Name of the product."
+        tests:
+          - not_null:
+              config:
+                tags: ["bronze", "data-quality"]
+      - name: CATEGORY
+        description: "Product category."
+        tests:
+          - not_null:
+              config:
+                tags: ["bronze", "data-quality"]
+      - name: UNIT_COST
+        description: "Unit cost of the product."
+        tests:
+          - not_null:
+              config:
+                tags: ["bronze", "data-quality"]
+      - name: WEIGHT_KG
+        description: "Weight of the product in kilograms."
+        tests:
+          - not_null:
+              config:
+                tags: ["bronze", "data-quality"]
+      - name: DIMENSIONS_CM
+        description: "Dimensions of the product in centimeters."
+        tests:
+          - not_null:
+              config:
+                tags: ["bronze", "data-quality"]
+
+  - name: stg_warehouses
+    description: "Staging model for Bronze warehouses master data."
+    tags: ["bronze", "data-quality"]
+    columns:
+      - name: WAREHOUSE_ID
+        description: "Unique identifier for each warehouse."
+        tests:
+          - unique:
+              config:
+                tags: ["bronze", "data-quality"]
+          - not_null:
+              config:
+                tags: ["bronze", "data-quality"]
+      - name: WAREHOUSE_NAME
+        description: "Name of the warehouse."
+        tests:
+          - not_null:
+              config:
+                tags: ["bronze", "data-quality"]
+      - name: LOCATION
+        description: "Location of the warehouse."
+        tests:
+          - not_null:
+              config:
+                tags: ["bronze", "data-quality"]
+      - name: CAPACITY_UNITS
+        description: "Capacity of the warehouse in units."
+        tests:
+          - not_null:
+              config:
+                tags: ["bronze", "data-quality"]
+      - name: MANAGER_NAME
+        description: "Name of the warehouse manager."
+        tests:
+          - not_null:
+              config:
+                tags: ["bronze", "data-quality"]
+
+  # -------------------------------------------------------------------------
+  # Silver model
+  # -------------------------------------------------------------------------
+  - name: daily_inventory_snapshot
+    description: "Daily snapshot combining inventory and orders data."
+    tags: ["silver", "data-quality"]
+    columns:
+      - name: movement_date
+        tests:
+          - not_null:
+              config:
+                tags: ["silver", "data-quality"]
+          - dbt_expectations.expect_column_values_to_be_of_type:
+              column_type: date
+              config:
+                tags: ["silver", "data-quality"]
+      - name: product_id
+        tests:
+          - not_null:
+              config:
+                tags: ["silver", "data-quality"]
+      - name: warehouse_id
+        tests:
+          - not_null:
+              config:
+                tags: ["silver", "data-quality"]
+      - name: qty_replenished
+        tests:
+          - not_null:
+              config:
+                tags: ["silver", "data-quality"]
+      - name: qty_shipped
+        tests:
+          - not_null:
+              config:
+                tags: ["silver", "data-quality"]
+      - name: net_inventory_change
+        tests:
+          - not_null:
+              config:
+                tags: ["silver", "data-quality"]
+
+  # -------------------------------------------------------------------------
+  # Gold model
+  # -------------------------------------------------------------------------
+  - name: daily_inventory_kpis
+    description: "Daily aggregated inventory KPIs for business analytics."
+    tags: ["gold", "data-quality"]
+    columns:
+      - name: report_date
+        tests:
+          - not_null:
+              config:
+                tags: ["gold", "data-quality"]
+          - dbt_expectations.expect_column_values_to_be_of_type:
+              column_type: date
+              config:
+                tags: ["gold", "data-quality"]
+      - name: warehouse_name
+        tests:
+          - not_null:
+              config:
+                tags: ["gold", "data-quality"]
+      - name: product_name
+        tests:
+          - not_null:
+              config:
+                tags: ["gold", "data-quality"]
+      - name: total_orders
+        tests:
+          - not_null:
+              config:
+                tags: ["gold", "data-quality"]
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 1000
+              config:
+                tags: ["gold", "data-quality"]
+      - name: total_units_shipped
+        tests:
+          - not_null:
+              config:
+                tags: ["gold", "data-quality"]
+      - name: stock_turnover_ratio
+        tests:
+          - not_null:
+              config:
+                tags: ["gold", "data-quality"]
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 100
+              config:
+                tags: ["gold", "data-quality"]
+
+  # -------------------------------------------------------------------------
+  # Monitoring model
+  # -------------------------------------------------------------------------
+  - name: obs_kpis_daily
+    description: "Daily KPI grain for dashboards."
+    tags: ["observability", "data-quality"]
+    columns:
+      - name: report_date
+        tests:
+          - not_null:
+              config:
+                tags: ["observability", "data-quality"]
+      - name: warehouse_name
+        tests:
+          - not_null:
+              config:
+                tags: ["observability", "data-quality"]
+      - name: product_name
+        tests:
+          - not_null:
+              config:
+                tags: ["observability", "data-quality"]
+      - name: total_orders
+        tests:
+          - not_null:
+              config:
+                tags: ["observability", "data-quality"]
+          - dbt_utils.accepted_range:
+              min_value: 0
+              config:
+                tags: ["observability", "data-quality"]
+      - name: total_units_shipped
+        tests:
+          - not_null:
+              config:
+                tags: ["observability", "data-quality"]
+          - dbt_utils.accepted_range:
+              min_value: 0
+              config:
+                tags: ["observability", "data-quality"]
+      - name: total_units_replenished
+        tests:
+          - not_null:
+              config:
+                tags: ["observability", "data-quality"]
+          - dbt_utils.accepted_range:
+              min_value: 0
+              config:
+                tags: ["observability", "data-quality"]
+      - name: stock_turnover_ratio
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              config:
+                tags: ["observability", "data-quality"]
+
+  - name: obs_kpis_7d
+    description: "7-day rolling KPIs for the observability dashboard."
+    tags: ["observability", "data-quality"]
+    columns:
+      - name: last_date
+        tests:
+          - not_null:
+              config:
+                tags: ["observability", "data-quality"]
+      - name: wk_orders
+        tests:
+          - not_null:
+              config:
+                tags: ["observability", "data-quality"]
+      - name: wk_units
+        tests:
+          - not_null:
+              config:
+                tags: ["observability", "data-quality"]
+      - name: avg_turnover
+        tests:
+          - not_null:
+              config:
+                tags: ["observability", "data-quality"]
+
+  - name: obs_freshness
+    description: "Freshness of the Silver snapshot."
+    tags: ["observability", "data-quality"]
+    columns:
+      - name: freshness_hours
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              config:
+                tags: ["observability", "data-quality"]

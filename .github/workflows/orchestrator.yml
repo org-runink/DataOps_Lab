@@ -1,0 +1,335 @@
+name: Platform Orchestrator (Security → ELT → Observability)
+run-name: "Orchestrator: ${{ github.ref_name }} • ${{
+  startsWith(github.event_name, 'pull_request') && 'pull_request' || github.event_name }}"
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'feature/*'
+    tags:
+      - 'pipeline validation'
+  issues:
+    types: [labeled, reopened, opened, unlocked]
+  workflow_dispatch: {}
+
+concurrency:
+  group: orchestrator-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  RUN_SECURITY: ${{ vars.RUN_SECURITY || 'yes' }}
+  RUN_OBSERVABILITY: ${{ vars.RUN_OBSERVABILITY || 'yes' }}
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+jobs:
+  # ---------------- Gate: should we run, and which stages? ----------------
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.o.outputs.proceed }}
+      run_security: ${{ steps.o.outputs.run_security }}
+      run_pipelines: ${{ steps.o.outputs.run_pipelines }}
+      run_observability: ${{ steps.o.outputs.run_observability }}
+      has_feature: ${{ steps.o.outputs.has_feature }}
+      has_cleanup: ${{ steps.o.outputs.has_cleanup }}
+    steps:
+      - id: o
+        run: |
+          echo "proceed=${PROCEED}"               >> "$GITHUB_OUTPUT"
+          echo "run_security=${RUN_SECURITY}"     >> "$GITHUB_OUTPUT"
+          echo "run_pipelines=${RUN_PIPELINES}"   >> "$GITHUB_OUTPUT"
+          echo "run_observability=${RUN_OBS}"     >> "$GITHUB_OUTPUT"
+          echo "has_feature=${HAS_FEATURE}"       >> "$GITHUB_OUTPUT"
+          echo "has_cleanup=${HAS_CLEANUP}"       >> "$GITHUB_OUTPUT"
+        env:
+          # ---------- helpers (safe to keep, but we won't rely on env.* in expressions) ----------
+          COMMITS_JSON: ${{ toJson(github.event.commits) }}
+          HEAD_MSG: ${{ github.event.head_commit.message || '' }}
+          FEATURE_BRANCH: ${{ startsWith(github.ref, 'refs/heads/feature/') }}
+
+          # ---------- labels on issues ----------
+          HAS_FEATURE: ${{ contains(toJson(github.event.issue), '"name":"feature"') }}
+          HAS_CLEANUP: ${{ contains(toJson(github.event.issue), '"name":"cleanup"') }}
+
+          # ---------- global switches (READ DIRECTLY FROM github.*) ----------
+          RUN_ALL: ${{ contains(toJson(github.event.commits), '#run_all') || contains(github.event.head_commit.message || '', '#run_all') }}
+          SKIP_ALL: ${{ contains(toJson(github.event.commits), '#skip_all') || contains(github.event.head_commit.message || '', '#skip_all') || contains(github.event.head_commit.message || '', '#skip_orchestrate') }}
+
+          # ---------- orchestrate / elt triggers ----------
+          RUN_ORCH: ${{ contains(toJson(github.event.commits), '#orchestrate') || contains(github.event.head_commit.message || '', '#orchestrate') }}
+          RUN_ELT: ${{ contains(toJson(github.event.commits), '#run_elt') || contains(github.event.head_commit.message || '', '#run_elt')|| contains(toJson(github.event.commits), '#run_pipeline') || contains(github.event.head_commit.message || '', '#run_pipeline')|| contains(toJson(github.event.commits), '#run_pipelines') || contains(github.event.head_commit.message || '', '#run_pipelines') }}
+          SKIP_ELT: ${{ contains(toJson(github.event.commits), '#skip_elt') || contains(github.event.head_commit.message || '', '#skip_elt')|| contains(toJson(github.event.commits), '#skip_pipeline') || contains(github.event.head_commit.message || '', '#skip_pipeline')|| contains(toJson(github.event.commits), '#skip_pipelines') || contains(github.event.head_commit.message || '', '#skip_pipelines') }}
+
+          # ---------- per-stage toggles ----------
+          RUN_SECURITY_TAG: ${{ contains(toJson(github.event.commits), '#run_security') || contains(github.event.head_commit.message || '', '#run_security') }}
+          SKIP_SECURITY_TAG: ${{ contains(toJson(github.event.commits), '#skip_security') || contains(github.event.head_commit.message || '', '#skip_security') }}
+
+          RUN_OBS_TAG: ${{ contains(toJson(github.event.commits), '#run_obs') || contains(github.event.head_commit.message || '', '#run_obs') || contains(toJson(github.event.commits), '#run_observability') || contains(github.event.head_commit.message || '', '#run_observability') }}
+          SKIP_OBS_TAG: ${{ contains(toJson(github.event.commits), '#skip_obs') || contains(github.event.head_commit.message || '', '#skip_obs') || contains(toJson(github.event.commits), '#skip_observability') || contains(github.event.head_commit.message || '', '#skip_observability') }}
+
+          # ---------- proceed logic (Option A: opt-in on pushes) ----------
+          # proceed only when:
+          # - issues with feature/cleanup labels
+          # - manual dispatch
+          # - push with #run_all OR #orchestrate OR any explicit run tag
+          PROCEED: ${{ (  github.event_name == 'issues' && (contains(toJson(github.event.issue), '"name":"feature"') || contains(toJson(github.event.issue), '"name":"cleanup"'))) || (  github.event_name == 'workflow_dispatch') || (  github.event_name == 'push'  && ! ( contains(toJson(github.event.commits), '#skip_all') || contains(github.event.head_commit.message || '', '#skip_all') || contains(github.event.head_commit.message || '', '#skip_orchestrate') )  && (       contains(toJson(github.event.commits), '#run_all') || contains(github.event.head_commit.message || '', '#run_all')    || contains(toJson(github.event.commits), '#orchestrate') || contains(github.event.head_commit.message || '', '#orchestrate')    || contains(toJson(github.event.commits), '#run_security') || contains(github.event.head_commit.message || '', '#run_security')    || contains(toJson(github.event.commits), '#run_elt') || contains(github.event.head_commit.message || '', '#run_elt')    || contains(toJson(github.event.commits), '#run_pipeline') || contains(github.event.head_commit.message || '', '#run_pipeline')    || contains(toJson(github.event.commits), '#run_pipelines') || contains(github.event.head_commit.message || '', '#run_pipelines')    || contains(toJson(github.event.commits), '#run_obs') || contains(github.event.head_commit.message || '', '#run_obs')    || contains(toJson(github.event.commits), '#run_observability') || contains(github.event.head_commit.message || '', '#run_observability')  )) }}
+
+          # An “explicit run tag” means at least one of run_security_tag, run_elt or run_obs is present.
+          EXPLICIT_RUN_TAG: ${{ (  contains(toJson(github.event.commits), '#run_security') || contains(github.event.head_commit.message || '', '#run_security')  || contains(toJson(github.event.commits), '#run_elt') || contains(github.event.head_commit.message || '', '#run_elt')  || contains(toJson(github.event.commits), '#run_pipeline') || contains(github.event.head_commit.message || '', '#run_pipeline')  || contains(toJson(github.event.commits), '#run_pipelines') || contains(github.event.head_commit.message || '', '#run_pipelines')  || contains(toJson(github.event.commits), '#run_obs') || contains(github.event.head_commit.message || '', '#run_obs')  || contains(toJson(github.event.commits), '#run_observability') || contains(github.event.head_commit.message || '', '#run_observability')) }}
+
+          # ---------- stage decisions ----------
+          RUN_SECURITY: ${{ (  env.SKIP_ALL == 'true' || env.SKIP_SECURITY_TAG == 'true') && 'no' || (  env.EXPLICIT_RUN_TAG == 'true' && (env.RUN_SECURITY_TAG == 'true' || env.RUN_ELT == 'true')) && 'yes' || (  env.EXPLICIT_RUN_TAG == 'true') && 'no' || 'yes' }}
+
+          RUN_PIPELINES: ${{ (  env.SKIP_ALL == 'true' || env.SKIP_ELT == 'true') && 'no' || (  env.EXPLICIT_RUN_TAG == 'true' && env.RUN_ELT == 'true') && 'yes' || (  env.EXPLICIT_RUN_TAG == 'true') && 'no' || 'yes' }}
+
+          RUN_OBS: ${{ (  env.SKIP_ALL == 'true' || env.SKIP_OBS_TAG == 'true') && 'no' || (  env.EXPLICIT_RUN_TAG == 'true' && env.RUN_OBS_TAG == 'true') && 'yes' || (  env.EXPLICIT_RUN_TAG == 'true') && 'no' || 'yes' }}
+
+  # ---------------- Resolve environment ----------------
+  resolve_context:
+    runs-on: ubuntu-latest
+    needs: gate
+    if: needs.gate.outputs.proceed == 'true'
+    outputs:
+      environment: ${{ steps.resolve.outputs.environment }}
+      metrics_database: ${{ steps.obs.outputs.metrics_database }}
+      metrics_schema_prefix: ${{ steps.obs.outputs.metrics_schema_prefix }}
+    steps:
+      - name: Resolve environment
+        id: resolve
+        shell: bash
+        run: |
+          REF="${{ github.ref }}"
+          if [[ "$REF" == "refs/heads/main" ]]; then
+            ENV=prod
+          elif [[ "$REF" == "refs/heads/develop" ]]; then
+            ENV=dev
+          elif [[ "$REF" == refs/heads/feature/* || "$REF" == refs/tags/* ]]; then
+            ENV=ci_cd
+          else
+            ENV=ci_cd
+          fi
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+      - name: Resolve observability inputs
+        id: obs
+        shell: bash
+        run: |
+          set -euo pipefail
+          DB='${{ secrets.SNOWFLAKE_DATABASE }}'
+          PREFIX='${{ secrets.OBSERVABILITY_SCHEMA_PREFIX }}'
+          if [[ -z "$DB" ]]; then
+            echo "::error::Missing required secret SNOWFLAKE_DATABASE"
+            exit 1
+          fi
+          if [[ -z "$PREFIX" ]]; then
+            echo "::error::Missing required secret OBSERVABILITY_SCHEMA_PREFIX"
+            exit 1
+          fi
+          echo "metrics_database=$DB" >> "$GITHUB_OUTPUT"
+          echo "metrics_schema_prefix=$PREFIX" >> "$GITHUB_OUTPUT"
+
+  # ---------------- Provision (only when pipelines run; no-op unless feature label) ----------------
+  provision_feature:
+    name: "Provision Feature Schema"
+    needs: [resolve_context, gate, security]
+    if: ${{ needs.gate.outputs.proceed == 'true' && needs.gate.outputs.run_pipelines == 'yes' }}
+    runs-on: ubuntu-latest
+    outputs:
+      feature_schema: ${{ steps.prov.outputs.feature_schema }}
+      created: ${{ steps.prov.outputs.created }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load .env from template
+        run: |
+          cat > .env <<'EOF'
+          SNOWFLAKE_ACCOUNT=${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER=${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_ROLE=${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_WAREHOUSE=${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_DATABASE=${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_AUTHENTICATOR=${{ secrets.SNOWFLAKE_AUTHENTICATOR || 'PROGRAMMATIC_ACCESS_TOKEN' }}
+          SNOWFLAKE_TOKEN=${{ secrets.SNOWFLAKE_TOKEN }}
+          SNOWFLAKE_USER_PASSWORD=${{ secrets.SNOWFLAKE_USER_PASSWORD || '' }}
+          OBSERVABILITY_SCHEMA_PREFIX=${{ secrets.OBSERVABILITY_SCHEMA_PREFIX }}
+          SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}
+          EOF
+          cat .env >> "$GITHUB_ENV"
+        env:
+      - id: prov
+        shell: bash
+        run: |
+          set -euo pipefail
+          CREATED=false
+          FEATURE_SCHEMA=""
+          if [[ "${{ github.event_name }}" == "issues" ]] && \
+             echo '${{ toJson(github.event.issue) }}' | grep -qi '"name":"feature"'; then
+            FEATURE_SCHEMA=$(jq -r '.issue.body' "$GITHUB_EVENT_PATH" \
+              | grep -i 'Schema/Object Name' | cut -d':' -f2 | xargs | tr '-' '_' )
+            echo "Creating schema/object: ${FEATURE_SCHEMA}"
+            python scripts/python/create_schema.py "${{ github.event.issue.number }}"
+            CREATED=true
+          else
+            echo "No feature provisioning needed for this run."
+          fi
+          echo "feature_schema=${FEATURE_SCHEMA}" >> "$GITHUB_OUTPUT"
+          echo "created=${CREATED}"               >> "$GITHUB_OUTPUT"
+
+  # ---------------- Security → ELT → Observability (strict) ----------------
+  security:
+    name: "🔒 Security SAST"
+    needs: [resolve_context, gate]
+    if: ${{ needs.gate.outputs.proceed == 'true' && needs.gate.outputs.run_security == 'yes' }}
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+      security-events: write
+    uses: ./.github/workflows/security.yml
+    with:
+      environment: ${{ needs.resolve_context.outputs.environment }}
+      extra_flags: ""
+      requirements_path: "scripts/python/sec.req.txt"
+    secrets: inherit # pragma: allowlist secret
+
+  pipelines:
+    name: "🛠️ Medallion ELT"
+    needs: [security, resolve_context, provision_feature, gate]
+    if: ${{ needs.gate.outputs.proceed == 'true' && needs.gate.outputs.run_pipelines == 'yes' && (needs.gate.outputs.run_security != 'yes' || needs.security.result == 'success') }}
+    uses: ./.github/workflows/data_pipeline.yml
+    with:
+      environment: ${{ needs.resolve_context.outputs.environment }}
+      extra_flags: ""
+      requirements_path: "scripts/python/elt.req.txt"
+    secrets: inherit # pragma: allowlist secret
+
+  cleanup_after_pipeline:
+    name: "Cleanup provisioned objects (pipeline failure)"
+    needs: [pipelines, provision_feature, resolve_context, gate]
+    if: ${{ needs.pipelines.result == 'failure' && needs.provision_feature.outputs.created == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load .env from template
+        run: |
+          cat > .env <<'EOF'
+          SNOWFLAKE_ACCOUNT=${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER=${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_ROLE=${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_WAREHOUSE=${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_DATABASE=${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_AUTHENTICATOR=${{ secrets.SNOWFLAKE_AUTHENTICATOR || 'PROGRAMMATIC_ACCESS_TOKEN' }}
+          SNOWFLAKE_TOKEN=${{ secrets.SNOWFLAKE_TOKEN }}
+          SNOWFLAKE_USER_PASSWORD=${{ secrets.SNOWFLAKE_USER_PASSWORD || '' }}
+          OBSERVABILITY_SCHEMA_PREFIX=${{ secrets.OBSERVABILITY_SCHEMA_PREFIX }}
+          SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}
+          EOF
+          cat .env >> "$GITHUB_ENV"
+        env:
+      - name: Drop provisioned schema/object
+        env:
+          FEATURE_SCHEMA: ${{ needs.provision_feature.outputs.feature_schema }}
+        run: |
+          echo "Dropping provisioned schema/object: ${FEATURE_SCHEMA}"
+          python scripts/python/drop_schema.py "${FEATURE_SCHEMA}" "${{ github.run_id }}"
+
+  observability:
+    name: "📊 Observability Metrics"
+    needs: [pipelines, resolve_context, gate]
+    if: ${{ needs.gate.outputs.proceed == 'true' && needs.gate.outputs.run_observability == 'yes' && (needs.pipelines.result == 'success' || needs.pipelines.result == 'skipped') }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/observability.yml
+    with:
+      environment: ${{ needs.resolve_context.outputs.environment }}
+      snowflake_database: ${{ needs.resolve_context.outputs.metrics_database }}
+      schema_prefix: ${{ needs.resolve_context.outputs.metrics_schema_prefix }}
+      extra_flags: ""
+      requirements_path: "scripts/python/obs.req.txt"
+    secrets: inherit # pragma: allowlist secret
+
+  manual_cleanup:
+    name: "Manual Cleanup (Issue)"
+    needs: [resolve_context, gate]
+    if: needs.gate.outputs.has_cleanup == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load .env from template
+        run: |
+          cat > .env <<'EOF'
+          SNOWFLAKE_ACCOUNT=${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER=${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_ROLE=${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_WAREHOUSE=${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_DATABASE=${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_AUTHENTICATOR=${{ secrets.SNOWFLAKE_AUTHENTICATOR || 'PROGRAMMATIC_ACCESS_TOKEN' }}
+          SNOWFLAKE_TOKEN=${{ secrets.SNOWFLAKE_TOKEN }}
+          SNOWFLAKE_USER_PASSWORD=${{ secrets.SNOWFLAKE_USER_PASSWORD || '' }}
+          OBSERVABILITY_SCHEMA_PREFIX=${{ secrets.OBSERVABILITY_SCHEMA_PREFIX }}
+          SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}
+          EOF
+          cat .env >> "$GITHUB_ENV"
+        env:
+      - name: Parse object name to delete
+        run: |
+          OBJECT_NAME=$(jq -r '.issue.body' "$GITHUB_EVENT_PATH" \
+            | grep -i 'Schema/Object Name to Delete' | cut -d':' -f2 | xargs | tr '-' '_' )
+          echo "OBJECT_NAME=$OBJECT_NAME" >> "$GITHUB_ENV"
+      - name: Drop schema/object
+        run: |
+          python scripts/python/drop_schema.py "${OBJECT_NAME}" "${{ github.event.issue.number }}"
+
+  # ---------------- Notify (only when gate says proceed) ----------------
+  notify:
+    needs: [gate, resolve_context, security, pipelines, observability, cleanup_after_pipeline]
+    runs-on: ubuntu-latest
+    if: ${{ needs.gate.outputs.proceed == 'true' }}
+    steps:
+      - name: Compose summary
+        id: sum
+        run: |
+          SEC=${{ needs.gate.outputs.run_security == 'yes' && needs.security.result || 'skipped' }}
+          PIPE=${{ needs.pipelines.result || 'skipped' }}
+          OBS=${{ needs.gate.outputs.run_observability == 'yes' && needs.observability.result || 'skipped' }}
+
+          OVERALL=success
+          [[ "$SEC" == "failure" || "$PIPE" == "failure" || "$OBS" == "failure" ]] && OVERALL=failure
+
+          echo "overall=$OVERALL" >> $GITHUB_OUTPUT
+          echo "security=$SEC" >> $GITHUB_OUTPUT
+          echo "pipelines=$PIPE" >> $GITHUB_OUTPUT
+          echo "observability=$OBS" >> $GITHUB_OUTPUT
+          echo "run_url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> $GITHUB_OUTPUT
+          echo "branch=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          echo "env=${{ needs.resolve_context.outputs.environment || 'n/a' }}" >> $GITHUB_OUTPUT
+          echo "event=${{ github.event_name }}" >> $GITHUB_OUTPUT
+
+      - name: Slack — Orchestration Summary
+        if: env.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "blocks": [
+                { "type":"header", "text": { "type":"plain_text", "text": "${{ steps.sum.outputs.overall == 'success' && '✅ Orchestration Succeeded' || '🚨 Orchestration Failed' }}" } },
+                { "type":"section", "fields": [
+                  { "type":"mrkdwn", "text":"*Environment:* `${{ steps.sum.outputs.env }}`" },
+                  { "type":"mrkdwn", "text":"*Branch/Ref:* `${{ steps.sum.outputs.branch }}`" },
+                  { "type":"mrkdwn", "text":"*Triggered by:* `${{ steps.sum.outputs.event }}`" },
+                  { "type":"mrkdwn", "text":"*Run:* <${{ steps.sum.outputs.run_url }}|${{ github.run_id }}>" }
+                ]},
+                { "type":"divider" },
+                { "type":"section", "text": { "type":"mrkdwn",
+                  "text":"*Stages*\n• Security scan: *${{ steps.sum.outputs.security }}*\n• Data pipelines (ELT): *${{ steps.sum.outputs.pipelines }}*\n• Observability metrics: *${{ steps.sum.outputs.observability }}*" } }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ env.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

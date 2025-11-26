@@ -1,0 +1,8 @@
+dbt-snowflake==1.7.*              # Snowflake adapter
+snowflake-connector-python[pandas]==3.8.*  # connector with pandas optimizations
+pandas==2.2.*                     # 2.x stable API
+jinja2==3.1.*                     # templating (used by dbt models)
+python-dateutil==2.9.*            # date parsing/utilities
+pyyaml==6.0.*                     # YAML parsing (dbt configs)
+tabulate==0.9.*                   # pretty-printing tabular outputs
+faker==25.*                       # synthetic data for seeds/demos

@@ -1,0 +1,4 @@
+python-dateutil==2.9.*            # timestamp handling
+sqlfluff==3.0.3
+sqlfluff-templater-dbt==3.0.3
+pre-commit==3.7.*
