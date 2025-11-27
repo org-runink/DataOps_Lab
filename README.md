@@ -110,6 +110,52 @@ sequenceDiagram
    pip install -r scripts/python/elt.req.txt
    ```
 
+## Install GitHub CLI (gh) via command line
+Pick the path for your OS; all are automation-friendly (no GUI):
+
+- **Debian/Ubuntu (apt)**
+  ```bash
+  type -P gh >/dev/null || {
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+      | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+    sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+      | sudo tee /etc/apt/sources.list.d/github-cli.list
+    sudo apt-get update
+    sudo apt-get install -y gh
+  }
+  ```
+
+- **RHEL/CentOS/Fedora (dnf/yum)**
+  ```bash
+  type -P gh >/dev/null || {
+    sudo dnf install -y 'https://cli.github.com/packages/rpm/gh-cli.repo'
+    sudo dnf install -y gh
+  }
+  # For older yum-based:
+  # sudo yum-config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
+  # sudo yum install -y gh
+  ```
+
+- **macOS (Homebrew)**
+  ```bash
+  type -P gh >/dev/null || brew install gh
+  ```
+
+- **Windows (PowerShell, winget)**
+  ```powershell
+  winget install --id GitHub.cli -e
+  ```
+  (or `choco install gh` if you use Chocolatey)
+
+After install:
+```bash
+gh --version
+gh auth login --hostname github.com --git-protocol https --web    # HTTPS
+# or
+gh auth login --hostname github.com --git-protocol ssh --web      # SSH
+```
+
 ## How to run a demo from a branch (quick start)
 1) Start from main:
    ```bash
@@ -135,13 +181,7 @@ sequenceDiagram
 - Orchestrator summary links to the run and shows stage outcomes.
 
 ## How to onboard a new feed via issue (no code needed)
-1) Open an issue labeled `feature` with the feed name and intent.
-   ```bash
-   gh issue create \
-     --title "Feature – onboard new supplier feed" \
-     --label feature \
-     --body $'Schema/Object Name: inv_supplier_stage\nUse case: Normalize supplier stock feed and stitch to WMS/POS inventory.'
-   ```
+1) In the GitHub web UI, open an issue, add the `feature` label, and describe the feed and schema/object name (e.g., `inv_supplier_stage`).
 2) The orchestrator will:
    - Create an isolated schema like `inv_supplier_stage_issue_<issue_id>` in Snowflake.
    - Run Security → ELT → Observability.
