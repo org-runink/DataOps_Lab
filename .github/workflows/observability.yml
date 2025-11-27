@@ -34,9 +34,7 @@ on:
       SNOWFLAKE_ROLE: {required: true}
       SNOWFLAKE_WAREHOUSE: {required: true}
       SNOWFLAKE_TOKEN: {required: true}
-      SNOWFLAKE_AUTHENTICATOR: {required: false}
       SNOWFLAKE_DATABASE: {required: true}
-      SNOWFLAKE_USER_PASSWORD: {required: false}
       SLACK_WEBHOOK_URL: {required: false}
 
 permissions:
@@ -71,19 +69,17 @@ jobs:
           cat > .env <<'EOF'
           SNOWFLAKE_ACCOUNT=${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER=${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_PASSWORD=${{ secrets.SNOWFLAKE_TOKEN }}
           SNOWFLAKE_ROLE=${{ secrets.SNOWFLAKE_ROLE }}
           SNOWFLAKE_WAREHOUSE=${{ secrets.SNOWFLAKE_WAREHOUSE }}
           SNOWFLAKE_DATABASE=${{ secrets.SNOWFLAKE_DATABASE }}
-          SNOWFLAKE_AUTHENTICATOR=${{ secrets.SNOWFLAKE_AUTHENTICATOR || 'PROGRAMMATIC_ACCESS_TOKEN' }}
-          SNOWFLAKE_TOKEN=${{ secrets.SNOWFLAKE_TOKEN }}
-          SNOWFLAKE_USER_PASSWORD=${{ secrets.SNOWFLAKE_USER_PASSWORD || '' }}
           OBSERVABILITY_SCHEMA_PREFIX=${{ secrets.OBSERVABILITY_SCHEMA_PREFIX }}
           SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}
           METRICS_DATABASE=${{ inputs.snowflake_database || secrets.SNOWFLAKE_DATABASE }}
           METRICS_SCHEMA_PREFIX=${{ inputs.schema_prefix || secrets.OBSERVABILITY_SCHEMA_PREFIX }}
           EOF
 
-          for key in SNOWFLAKE_ACCOUNT SNOWFLAKE_USER SNOWFLAKE_ROLE SNOWFLAKE_WAREHOUSE SNOWFLAKE_DATABASE METRICS_DATABASE METRICS_SCHEMA_PREFIX SNOWFLAKE_TOKEN; do
+          for key in SNOWFLAKE_ACCOUNT SNOWFLAKE_USER SNOWFLAKE_ROLE SNOWFLAKE_WAREHOUSE SNOWFLAKE_DATABASE METRICS_DATABASE METRICS_SCHEMA_PREFIX SNOWFLAKE_PASSWORD; do
             value=$(grep "^${key}=" .env | cut -d'=' -f2-)
             if [[ -z "${value}" ]]; then
               echo "::error::Missing required value for ${key}"

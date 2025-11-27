@@ -7,10 +7,7 @@ import snowflake.connector
 # Retrieve Snowflake credentials from environment variables
 SNOWFLAKE_ACCOUNT = os.getenv("SNOWFLAKE_ACCOUNT")
 SNOWFLAKE_USER = os.getenv("SNOWFLAKE_USER")
-SNOWFLAKE_TOKEN = os.getenv("SNOWFLAKE_TOKEN")
-SNOWFLAKE_AUTHENTICATOR = os.getenv(
-    "SNOWFLAKE_AUTHENTICATOR", "PROGRAMMATIC_ACCESS_TOKEN"
-)
+SNOWFLAKE_PASSWORD = os.getenv("SNOWFLAKE_PASSWORD")
 SNOWFLAKE_ROLE = os.getenv("SNOWFLAKE_ROLE")
 SNOWFLAKE_WAREHOUSE = os.getenv("SNOWFLAKE_WAREHOUSE")
 SNOWFLAKE_DATABASE = os.getenv("SNOWFLAKE_DATABASE")
@@ -38,7 +35,7 @@ def connect_to_snowflake() -> snowflake.connector.SnowflakeConnection:
         [
             SNOWFLAKE_ACCOUNT,
             SNOWFLAKE_USER,
-            SNOWFLAKE_TOKEN,
+            SNOWFLAKE_PASSWORD,
             SNOWFLAKE_ROLE,
             SNOWFLAKE_WAREHOUSE,
             SNOWFLAKE_DATABASE,
@@ -48,8 +45,7 @@ def connect_to_snowflake() -> snowflake.connector.SnowflakeConnection:
     return snowflake.connector.connect(
         account=SNOWFLAKE_ACCOUNT,
         user=SNOWFLAKE_USER,
-        authenticator=SNOWFLAKE_AUTHENTICATOR,
-        token=SNOWFLAKE_TOKEN,
+        password=SNOWFLAKE_PASSWORD,
         role=SNOWFLAKE_ROLE,
         warehouse=SNOWFLAKE_WAREHOUSE,
         database=SNOWFLAKE_DATABASE,

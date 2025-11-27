@@ -5,8 +5,6 @@ import sys
 
 import snowflake.connector
 
-DEFAULT_AUTHENTICATOR = "PROGRAMMATIC_ACCESS_TOKEN"
-
 
 def fail(msg: str, code: int = 1):
     print(f"::error::{msg}")
@@ -37,7 +35,7 @@ def main():
         "METRICS_DATABASE",
         "METRICS_SCHEMA_PREFIX",
         "METRICS_SQL_PATH",
-        "SNOWFLAKE_TOKEN",
+        "SNOWFLAKE_PASSWORD",
     ]
     missing = [k for k in required_env if not os.environ.get(k)]
     if missing:
@@ -51,8 +49,7 @@ def main():
     prefix = os.environ["METRICS_SCHEMA_PREFIX"]
     sql_path = os.environ["METRICS_SQL_PATH"]
     gh_output = os.environ.get("GITHUB_OUTPUT")
-    token = os.environ["SNOWFLAKE_TOKEN"]
-    authenticator = os.environ.get("SNOWFLAKE_AUTHENTICATOR", DEFAULT_AUTHENTICATOR)
+    password = os.environ["SNOWFLAKE_PASSWORD"]
 
     repo_root = pathlib.Path(os.environ.get("GITHUB_WORKSPACE", "."))
     sql_full_path = (repo_root / sql_path).resolve()
@@ -66,8 +63,7 @@ def main():
     conn = snowflake.connector.connect(
         account=account,
         user=user,
-        authenticator=authenticator,
-        token=token,
+        password=password,
         role=role,
         warehouse=wh,
         database=database,

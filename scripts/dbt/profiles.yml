@@ -4,8 +4,7 @@ logistics_demo:
       type: snowflake
       account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
       user: "{{ env_var('SNOWFLAKE_USER') }}"
-      authenticator: "{{ env_var('SNOWFLAKE_AUTHENTICATOR', 'PROGRAMMATIC_ACCESS_TOKEN') }}"
-      token: "{{ env_var('SNOWFLAKE_TOKEN') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
       role: "{{ env_var('SNOWFLAKE_ROLE') }}"
       warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE') }}"
       database: "{{ env_var('SNOWFLAKE_DATABASE') }}"
@@ -18,8 +17,7 @@ logistics_demo:
       type: snowflake
       account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
       user: "{{ env_var('SNOWFLAKE_USER') }}"
-      authenticator: "{{ env_var('SNOWFLAKE_AUTHENTICATOR', 'PROGRAMMATIC_ACCESS_TOKEN') }}"
-      token: "{{ env_var('SNOWFLAKE_TOKEN') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
       role: "{{ env_var('SNOWFLAKE_ROLE') }}"
       warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE') }}"
       database: "{{ env_var('SNOWFLAKE_DATABASE') }}"
@@ -31,8 +29,7 @@ logistics_demo:
       type: snowflake
       account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
       user: "{{ env_var('SNOWFLAKE_USER') }}"
-      authenticator: "{{ env_var('SNOWFLAKE_AUTHENTICATOR', 'PROGRAMMATIC_ACCESS_TOKEN') }}"
-      token: "{{ env_var('SNOWFLAKE_TOKEN') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
       role: "{{ env_var('SNOWFLAKE_ROLE') }}"
       warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE') }}"
       database: "{{ env_var('SNOWFLAKE_DATABASE') }}"
