@@ -1,6 +1,6 @@
-name: 🧹 Cleanup Request
-description: Request deletion of DBT/Snowflake schema or object
-title: "[Cleanup]: <object-or-schema-name>"
+name: 🧹 Inventory Cleanup Request
+description: Request deletion of a Snowflake schema/object tied to an inventory feed/model
+title: "[Cleanup]: <inventory-object-or-schema-name>"
 
 labels: ["cleanup", "dbt", "snowflake"]
 
@@ -9,8 +9,8 @@ body:
     id: object_name
     attributes:
       label: "Schema/Object Name to Delete"
-      description: "Specify the exact schema or object to be deleted."
-      placeholder: "feature_old_inventory"
+      description: "Specify the exact schema or object to be deleted (e.g., deprecated feed or isolated schema)."
+      placeholder: "inv_supplier_stage_issue_123"
     validations:
       required: true
 

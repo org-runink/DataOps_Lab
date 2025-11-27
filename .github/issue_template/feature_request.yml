@@ -1,6 +1,6 @@
-name: 🚀 Feature Request
-description: Request creation of a new DBT/Snowflake schema or object for a new feature
-title: "[Feature]: <describe-feature-name>"
+name: 🚀 Inventory Feed/Model Request
+description: Request creation of a new inventory feed, staging object, or model in Snowflake/dbt
+title: "[Feature]: <inventory-feed-or-model>"
 
 labels: ["feature", "dbt", "snowflake"]
 
@@ -9,16 +9,16 @@ body:
     id: schema_name
     attributes:
       label: "Schema/Object Name"
-      description: "Provide the desired name for the schema/object."
-      placeholder: "inventory_forecast"
+      description: "Provide the desired name for the schema/object (useful for isolated schemas)."
+      placeholder: "inv_supplier_stage"
     validations:
       required: true
 
   - type: textarea
     id: description
     attributes:
-      label: "Feature Description"
-      description: "Briefly describe the feature and required DBT/Snowflake objects."
+      label: "Inventory Use Case"
+      description: "Describe the feed or model (POS/ERP/WMS/e-comm/supplier), desired latency (batch/streaming), and stock metrics needed."
     validations:
       required: true
 

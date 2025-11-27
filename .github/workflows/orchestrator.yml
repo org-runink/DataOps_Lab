@@ -1,5 +1,5 @@
-name: Platform Orchestrator (Security → ELT → Observability)
-run-name: "Orchestrator: ${{ github.ref_name }} • ${{
+name: Inventory Visibility Orchestrator (Security → ELT → Observability)
+run-name: "Inventory Orchestrator: ${{ github.ref_name }} • ${{
   startsWith(github.event_name, 'pull_request') && 'pull_request' || github.event_name }}"
 
 on:
@@ -157,7 +157,6 @@ jobs:
           SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}
           EOF
           cat .env >> "$GITHUB_ENV"
-        env:
       - id: prov
         shell: bash
         run: |
@@ -225,7 +224,6 @@ jobs:
           SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}
           EOF
           cat .env >> "$GITHUB_ENV"
-        env:
       - name: Drop provisioned schema/object
         env:
           FEATURE_SCHEMA: ${{ needs.provision_feature.outputs.feature_schema }}
@@ -270,7 +268,6 @@ jobs:
           SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}
           EOF
           cat .env >> "$GITHUB_ENV"
-        env:
       - name: Parse object name to delete
         run: |
           OBJECT_NAME=$(jq -r '.issue.body' "$GITHUB_EVENT_PATH" \
