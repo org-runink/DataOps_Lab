@@ -100,6 +100,14 @@ sequenceDiagram
   - `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_PASSWORD`, `SNOWFLAKE_ROLE`, `SNOWFLAKE_WAREHOUSE`, `SNOWFLAKE_DATABASE`
   - `OBSERVABILITY_SCHEMA_PREFIX`
   - `SLACK_WEBHOOK_URL` (optional but recommended)
+- Repo labels (create once):
+  - `feature` (triggers provisioning + pipelines)
+  - `cleanup` (triggers teardown)
+  - Create via GitHub UI or, if `gh` is installed:
+    ```bash
+    gh label create feature --color C2F5FF --description "Run pipelines for inventory feature"
+    gh label create cleanup --color FFE6E6 --description "Cleanup provisioned schema/object"
+    ```
 
 ## Setup (local optional, CI required secrets only)
 1) Clone the repo.
@@ -135,7 +143,7 @@ sequenceDiagram
 - Orchestrator summary links to the run and shows stage outcomes.
 
 ## How to onboard a new feed via issue (no code needed)
-1) Open an issue labeled `feature` with the feed name and intent.
+1) Ensure the `feature` label exists (see prerequisites). In the GitHub web UI, open an issue, add the `feature` label, and describe the feed and schema/object name (e.g., `inv_supplier_stage`). If you prefer CLI and have `gh` installed:
    ```bash
    gh issue create \
      --title "Feature – onboard new supplier feed" \
