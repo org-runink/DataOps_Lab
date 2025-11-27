@@ -146,16 +146,17 @@ sequenceDiagram
 1) Ensure the `feature` label exists (see prerequisites). In the GitHub web UI, open an issue, add the `feature` label, and describe the feed and schema/object name (e.g., `inv_supplier_stage`). Adding the label (not just opening the issue) is what triggers the orchestrator.
    - If the issue was created without the label, simply add the `feature` label afterward; the workflow listens to the label event.
    - If you prefer CLI and have `gh` installed (and the label exists):
-   ```bash
-   gh issue create \
-     --title "Feature – onboard new supplier feed" \
-     --label feature \
-     --body $'Schema/Object Name: inv_supplier_stage\nUse case: Normalize supplier stock feed and stitch to WMS/POS inventory.'
-   ```
-   - To add the label to an existing issue via CLI (after creating the label):
-    ```bash
-    gh issue edit <issue_number> --add-label feature
-    ```
+     - Create and label in one shot:
+       ```bash
+       gh issue create \
+         --title "Feature – onboard new supplier feed" \
+         --label feature \
+         --body $'Schema/Object Name: inv_supplier_stage\nUse case: Normalize supplier stock feed and stitch to WMS/POS inventory.'
+       ```
+     - Or label an existing issue to trigger the workflow:
+       ```bash
+       gh issue edit <issue_number> --add-label feature
+       ```
 2) The orchestrator will:
    - Create an isolated schema like `inv_supplier_stage_issue_<issue_id>` in Snowflake.
    - Run Security → ELT → Observability.
