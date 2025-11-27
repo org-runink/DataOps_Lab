@@ -15,7 +15,7 @@ flowchart LR
     Dev[Developer / Issue] -->|label: feature| GH[GitHub Actions Orchestrator]
     Dev -->|commit with run-tags| GH
     GH --> SEC[Security Checks]
-    GH --> ELT[dbt ELT (Bronze→Silver→Gold)]
+    GH --> ELT[dbt ELT Bronze-Silver-Gold]
     GH --> OBS[Observability Metrics]
     ELT --> SNF[Snowflake]
     SEC --> SLK[Slack Summary]
@@ -87,10 +87,45 @@ sequenceDiagram
 - GitHub Actions security workflow runs SAST/lint gates before ELT.
 - Configuration files (`.sqlfluff`, `.yamllint.yml`, `.pre-commit-config.yaml`) enforce standards.
 
+### Install pre-commit locally (recommended)
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install pre-commit
+pre-commit install
+pre-commit run --all-files
+```
+
 ## Quick start (demo)
-1) Open a GitHub issue labeled `feature` with an object name.
-2) The orchestrator creates an isolated schema, seeds data, runs dbt models/tests, and posts a Slack summary.
-3) For manual runs, push a commit with `#orchestrate #run_elt` in the message.
+### From `main`, create and validate a new feature
+```bash
+# 1) Start from main
+git checkout main
+git pull
+
+# 2) Create a feature branch (optional local path)
+git checkout -b feature/suppliers-stage
+
+# 3) Push an empty change with run-tags to exercise the platform
+echo "# demo touch" >> /tmp/demo.txt
+git add /tmp/demo.txt
+git commit -m "Demo run #orchestrate #run_elt #run_obs"
+git push -u origin feature/suppliers-stage
+```
+
+### Drive the issue-driven workflow
+```bash
+# From your browser or gh CLI, open an issue labeled `feature`
+# Using GitHub CLI:
+gh issue create \
+  --title "Feature – add bronze staging for suppliers" \
+  --label feature \
+  --body $'Schema/Object Name: suppliers_stage\nUse case: Stage supplier master data for joining to purchase orders.'
+```
+
+After the issue is labeled `feature`, the orchestrator will:
+- Create an isolated schema `suppliers_stage_issue_<issue_id>` in Snowflake.
+- Seed data, run dbt models/tests (Bronze→Silver→Gold), and collect observability metrics.
+- Post a Slack summary (if `SLACK_WEBHOOK_URL` is set).
 
 ## Troubleshooting
 - Missing secrets → workflows will fail fast with explicit errors.
