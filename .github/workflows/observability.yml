@@ -1,4 +1,4 @@
-name: Observability Metrics (dbt Monitoring)
+name: Inventory Observability Metrics (dbt Monitoring)
 
 on:
   workflow_call:
@@ -16,7 +16,7 @@ on:
         required: false
         type: string
       snowflake_database:
-        description: "Target Snowflake database used by the metrics query (e.g. LOGISTICS_DEMO)"
+        description: "Target Snowflake database used by the metrics query (e.g. INVENTORY_HUB)"
         required: true
         type: string
       schema_prefix:

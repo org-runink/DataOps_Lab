@@ -1,4 +1,4 @@
-name: Medallion ELT
+name: Inventory ELT (Medallion)
 
 # This workflow orchestrates a medallion ELT pipeline in GitHub Actions.
 # It uses a three‑layer approach (Bronze → Silver → Gold) to seed, stage,
