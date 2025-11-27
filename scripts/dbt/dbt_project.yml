@@ -1,7 +1,7 @@
 # scripts/dbt/dbt_project.yml
-name: 'logistics_demo'
+name: 'inventory_visibility'
 version: '1.0'
-profile: 'logistics_demo'
+profile: 'inventory_visibility'
 config-version: 2
 
 model-paths: ["models"]
@@ -10,11 +10,11 @@ test-paths: ["tests"]
 macro-paths: ["macros"]
 
 seeds:
-  logistics_demo:
+  inventory_visibility:
     +schema: bronze
 
 models:
-  logistics_demo:
+  inventory_visibility:
     bronze:
       +schema: bronze
       +materialized: view

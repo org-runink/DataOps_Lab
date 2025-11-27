@@ -1,4 +1,4 @@
-logistics_demo:
+inventory_visibility:
   outputs:
     prod:
       type: snowflake
